@@ -40,6 +40,7 @@ def find_chunk_boundaries(
         file.seek(initial_position)  # Start at boundary guess
         while True:
             # Ensure finding all special tokens straddling mini-chunks
+            file.seek(initial_position)
             mini_chunk = file.read(mini_chunk_size + len(split_special_token) - 1) 
 
             # If EOF, this boundary should be at the end of the file
