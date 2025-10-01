@@ -8,6 +8,7 @@ import sys, pathlib
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 
 from tests import adapters
+from cs336_basics import tokenizer
 
 def save_vocab_and_merges(
         vocab: dict[int, bytes],
@@ -29,7 +30,6 @@ def save_vocab_and_merges(
         json.dump(vocab_hex, vocab_file)
     with open(os.path.join(output_dir, "merges.json"), "w") as merges_file:
         json.dump(merges_hex, merges_file)
-
 
 def bpe_experiments():
 
@@ -56,8 +56,59 @@ def bpe_experiments():
     print(f"Longest token id/length: {longest_id}, {len(longest_tok)} bytes")
     print(f"Longest token string: {longest_tok.decode('utf-8')}")
 
+def tokenizer_experiments():
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data", required=True)
+    ap.add_argument("--vocab_file", required=True)
+    ap.add_argument("--merge_file", required=True)
+    ap.add_argument("--num_documents", type=int, default=None)
+    ap.add_argument("--out_dir", default="tokenized")
+    ap.add_argument("--special", nargs="*", default=["<|endoftext|>"])
+    args = ap.parse_args()
+    
+    os.makedirs(args.out_dir, exist_ok=True)
+    tokenizer_ex = tokenizer.Tokenizer.from_files(args.vocab_file, args.merge_file, args.special)
+    eot_id = tokenizer_ex.encode("<|endoftext|>")[0]
+
+    with open(args.data, "r") as data_file:
+        with open(os.path.join(args.out_dir, "tokenized.json"), "w") as output:
+
+            output.write("[")
+            dumped = False
+
+            token_ids = tokenizer_ex.encode_iterable(data_file)
+            docs_read = 0
+            document_tokens = []
+
+            while True:
+
+                try:
+                    tok = next(token_ids)
+                except StopIteration:
+                    # just break if EOF with no eot
+                    break
+
+                document_tokens.append(tok)
+
+                # increment docs and dump to .json if end of text
+                if tok == eot_id:
+                    for d_tok in document_tokens:
+                        json.dump(d_tok, output)
+                        if dumped:
+                            output.write(",")
+                        dumped = True
+                    document_tokens = []
+                    docs_read += 1 
+
+                # iterate through num_documents 
+                if args.num_documents is not None and docs_read >= args.num_documents:
+                    break
+            
+            output.write("]")
+
 def main():
-    bpe_experiments()
+    tokenizer_experiments()
 
 if __name__ == "__main__":
     main()

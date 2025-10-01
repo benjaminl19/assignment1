@@ -5,6 +5,7 @@ from typing import IO, Any, BinaryIO
 
 import os
 import math
+import numpy as np
 import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
@@ -485,7 +486,15 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+    
+    # randomly generate batch starting points [0, n-m)
+    batches = np.random.randint(0, dataset.shape[0] - context_length, size=batch_size)
+    indices = np.expand_dims(batches, 1) + np.arange(context_length) # (batch, 1) + (1, m)
+
+    inputs = torch.as_tensor(dataset[indices], device=device, dtype=torch.long)
+    labels = torch.as_tensor(dataset[indices + 1], device=device, dtype=torch.long)
+
+    return (inputs, labels)
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
@@ -630,8 +639,12 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
-
+    obj = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "iteration": iteration
+        }
+    torch.save(obj, out)
 
 def run_load_checkpoint(
     src: str | os.PathLike | BinaryIO | IO[bytes],
@@ -651,8 +664,10 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    raise NotImplementedError
-
+    obj = torch.load(src)
+    model.load_state_dict(obj["model"])
+    optimizer.load_state_dict(obj["optimizer"])
+    return obj["iteration"]
 
 def get_tokenizer(
     vocab: dict[int, bytes],
