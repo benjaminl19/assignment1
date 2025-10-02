@@ -331,8 +331,20 @@ def run_transformer_block(
     """
     
     transformer_block = transformer.TransformerBlock(
-        d_model, num_heads, d_ff, weights
+        d_model, num_heads, d_ff
     )
+
+    transformer_block.load_state_dict({
+        'attn.W_q' : weights['attn.q_proj.weight'],
+        'attn.W_k' : weights['attn.k_proj.weight'],
+        'attn.W_v' : weights['attn.v_proj.weight'],
+        'attn.W_o' : weights['attn.output_proj.weight'],
+        'ffn.W1' : weights['ffn.w1.weight'],
+        'ffn.W2' : weights['ffn.w2.weight'],
+        'ffn.W3' : weights['ffn.w3.weight'],
+        'ln1.gain' : weights['ln1.weight'],
+        'ln2.gain' : weights['ln2.weight']
+    })
 
     return transformer_block(in_features, max_seq_len, theta)
 
@@ -418,7 +430,29 @@ def run_transformer_lm(
         next-word distribution for each token.
     """
     
-    transformer_lm = transformer.TransformerLM(vocab_size, d_model, num_layers, num_heads, d_ff, weights)
+    transformer_lm = transformer.TransformerLM(
+        vocab_size, d_model, num_layers, num_heads, d_ff
+        )
+    
+    state_dict = {
+        'embed.M_embed' : weights['token_embeddings.weight'],
+        'ln_final.gain' : weights['ln_final.weight'],
+        'lm_head.W' : weights['lm_head.weight']
+    }
+    for i in range(num_layers):
+        layer_dict = {
+            f'layers.{i}.attn.W_q' : weights[f'layers.{i}.attn.q_proj.weight'],
+            f'layers.{i}.attn.W_k' : weights[f'layers.{i}.attn.k_proj.weight'],
+            f'layers.{i}.attn.W_v' : weights[f'layers.{i}.attn.v_proj.weight'],
+            f'layers.{i}.attn.W_o' : weights[f'layers.{i}.attn.output_proj.weight'],
+            f'layers.{i}.ffn.W1' : weights[f'layers.{i}.ffn.w1.weight'],
+            f'layers.{i}.ffn.W2' : weights[f'layers.{i}.ffn.w2.weight'],
+            f'layers.{i}.ffn.W3' : weights[f'layers.{i}.ffn.w3.weight'],
+            f'layers.{i}.ln1.gain' : weights[f'layers.{i}.ln1.weight'],
+            f'layers.{i}.ln2.gain' : weights[f'layers.{i}.ln2.weight']
+        }
+        state_dict.update(layer_dict)
+    transformer_lm.load_state_dict(state_dict)
 
     return transformer_lm(in_indices, context_length, rope_theta)
 

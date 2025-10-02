@@ -233,25 +233,17 @@ class TransformerBlock(nn.Module):
             self, 
             d_model: int, 
             num_heads: int,
-            d_ff: int, 
-            weights: dict[str, torch.Tensor],
+            d_ff: int
     ):
         super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
         self.d_ff = d_ff
 
-        self.W_q = weights['attn.q_proj.weight']
-        self.W_k = weights['attn.k_proj.weight']
-        self.W_v = weights['attn.v_proj.weight']
-        self.W_o = weights['attn.output_proj.weight']
-
-        self.W1 = weights['ffn.w1.weight']
-        self.W2 = weights['ffn.w2.weight']
-        self.W3 = weights['ffn.w3.weight']
-
-        self.gain1 =  weights['ln1.weight']
-        self.gain2 = weights['ln2.weight']
+        self.ln1 = RMSNorm(d_model, eps = 1e-5)
+        self.attn = MultiHeadSelfAttention(d_model, num_heads)
+        self.ln2 = RMSNorm(d_model, eps = 1e-5)
+        self.ffn = SwiGLU(d_model, d_ff)
 
     def forward(
             self, 
@@ -260,17 +252,8 @@ class TransformerBlock(nn.Module):
             theta: float | None = None
     ) -> torch.Tensor: 
         
-        eps = 1e-5
-
-        rms_norm_1 = adapters.run_rmsnorm(self.d_model, eps, self.gain1, x)
-        mhsa = adapters.run_multihead_self_attention_with_rope(
-            self.d_model, self.num_heads, max_seq_len, theta, self.W_q, self.W_k, self.W_v, self.W_o, rms_norm_1
-            )
-        y = x + mhsa
-
-        rms_norm_2 = adapters.run_rmsnorm(self.d_model, eps, self.gain2, y)
-        swiglu = adapters.run_swiglu(self.d_model, self.d_ff, self.W1, self.W2, self.W3, rms_norm_2)
-        out = y + swiglu
+        y = x + self.attn(self.ln1(x), max_seq_len, theta)
+        out = y + self.ffn(self.ln2(y))
 
         return out
 
@@ -283,7 +266,6 @@ class TransformerLM(nn.Module):
             num_layers: int,
             num_heads: int,
             d_ff: int,
-            weights: dict[str, torch.Tensor]
     ): 
         super().__init__()
         self.vocab_size = vocab_size
@@ -291,7 +273,11 @@ class TransformerLM(nn.Module):
         self.num_layers = num_layers
         self.num_heads = num_heads
         self.d_ff = d_ff
-        self.weights = weights
+
+        self.embed = Embedding(vocab_size, d_model)
+        self.layers = nn.ModuleList([TransformerBlock(d_model, num_heads, d_ff) for _ in range(num_layers)])
+        self.ln_final = RMSNorm(d_model, eps = 1e-5)
+        self.lm_head = Linear(d_model, vocab_size)
 
     def forward(
             self, 
@@ -299,48 +285,22 @@ class TransformerLM(nn.Module):
             context_length: int | None = None,
             rope_theta: float | None = None
     ) -> torch.Tensor:
-        
-        eps = 1e-5
 
         # embed input text 
         # (batch, seq_len) -> (batch, seq_len, d_model)
-        x = adapters.run_embedding(self.vocab_size, self.d_model, self.weights['token_embeddings.weight'], x)
+        x = self.embed(x)
         
         # pass through all decoder layers 
         # (batch, seq_len, d_model) -> (batch, seq_len, d_model)
-        for i in range(self.num_layers):
-            layer_weights = {
-                "attn.q_proj.weight": self.weights[f"layers.{i}.attn.q_proj.weight"],
-                "attn.k_proj.weight": self.weights[f"layers.{i}.attn.k_proj.weight"],
-                "attn.v_proj.weight": self.weights[f"layers.{i}.attn.v_proj.weight"],
-                "attn.output_proj.weight": self.weights[f"layers.{i}.attn.output_proj.weight"],
-                "ffn.w1.weight": self.weights[f"layers.{i}.ffn.w1.weight"],
-                "ffn.w2.weight": self.weights[f"layers.{i}.ffn.w2.weight"],
-                "ffn.w3.weight": self.weights[f"layers.{i}.ffn.w3.weight"],
-                "ln1.weight": self.weights[f"layers.{i}.ln1.weight"],
-                "ln2.weight": self.weights[f"layers.{i}.ln2.weight"]
-            }
-            x = adapters.run_transformer_block(
-                self.d_model, self.num_heads, self.d_ff, context_length, rope_theta, layer_weights, x
-            )
+        for layer in self.layers:
+            x = layer(x, context_length, rope_theta)
 
         # pass through final rms_norm 
         # (batch, seq_len, d_model) -> (batch, seq_len, d_model)
-        x = adapters.run_rmsnorm(self.d_model, eps, self.weights['ln_final.weight'], x)
+        x = self.ln_final(x)
 
         # pass through linear layer to get logits 
         # (batch, seq_len, d_model) -> (batch, seq_len, vocab_size)
-        x = adapters.run_linear(self.d_model, self.vocab_size, self.weights['lm_head.weight'], x)
+        x = self.lm_head(x)
 
         return x
-        
-
-
-
-
-
-
-
-        
-
-
