@@ -195,8 +195,8 @@ def training_loop():
         adapters.run_gradient_clipping(transformer_lm.parameters(), args.max_l2_norm)
         optimizer.step()
 
-        # log iteration, learning rate, loss
-        wandb.log({"iter": iter, "lr": lr, "loss": cross_entropy_loss.item()})
+        # log learning rate, loss
+        wandb.log({"lr": lr, "loss": cross_entropy_loss.item()})
 
         # save checkpoint
         if args.checkpoint_freq and iter % args.checkpoint_freq == 0:
